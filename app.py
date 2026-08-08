@@ -1,16 +1,14 @@
-import smtplib
-import socket
 import dns.resolver
 from flask import Flask, request, jsonify
 from email_validator import validate_email, EmailNotValidError
 
 app = Flask(__name__)
 
-def check_gmail_status(email):
-    # ১. ফরম্যাট যাচাই
+def check_gmail_fast(email):
+    # ১. ইমেইল ইনপুট ও ডোমেইন ভ্যালিডেশন
     try:
         valid = validate_email(email, check_deliverability=False)
-        email_addr = valid.email
+        email_addr = valid.email.lower()
         domain = email_addr.split('@')[1]
     except EmailNotValidError:
         return "Verify"
@@ -18,46 +16,36 @@ def check_gmail_status(email):
     if domain != "gmail.com":
         return "Verify"
 
-    # ২. MX Record বের করা
-    try:
-        mx_records = dns.resolver.resolve(domain, 'MX')
-        mx_record = str(mx_records[0].exchange)
-    except Exception:
+    # ২. ইউজারনেম ফিল্টারিং (খুব ছোট বা অস্বাভাবিক ক্যারেক্টার চেক)
+    username = email_addr.split('@')[0]
+    if len(username) < 6 or ".." in username:
         return "Verify"
 
-    # ৩. SMTP দিয়ে জিমেইল সচল নাকি নিষ্ক্রিয় চেক করা
+    # ৩. DNS MX Record দ্রুত চেক
     try:
-        server = smtplib.SMTP(timeout=8)
-        server.connect(mx_record)
-        server.helo(socket.gethostname())
-        server.mail("test@example.com")
-        code, message = server.rcpt(email_addr)
-        server.quit()
-
-        if code == 250:
+        mx_records = dns.resolver.resolve(domain, 'MX')
+        if len(mx_records) > 0:
             return "Good"
         else:
             return "Verify"
     except Exception:
         return "Verify"
 
-# API Route
 @app.route('/check-email', methods=['GET'])
 def check_email_api():
     email = request.args.get('email')
     if not email:
-        return jsonify({"status": "Error", "message": "Email parameter is missing"}), 400
+        return jsonify({"status": "Verify", "email": ""}), 400
     
-    result = check_gmail_status(email)
+    result = check_gmail_fast(email)
     return jsonify({
         "email": email,
         "status": result
     })
 
-# Render-এর হেলথ চেক রুট (UptimeRobot-এর জন্য)
 @app.route('/')
 def home():
-    return "Server is Running!", 200
+    return "Server is Active", 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
